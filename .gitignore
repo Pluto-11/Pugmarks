@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+
+# uv
+.uv/
+
+# Env / secrets
+.env
+.env.local
+
+# Cache
+.cache/
+~/.cache/pugmark/
+
+# Eval runs
+eval/runs/*.json
+!eval/runs/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
