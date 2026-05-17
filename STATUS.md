@@ -2,22 +2,21 @@
 
 > Living handoff document. Update at the end of every work session.
 
-**Last updated:** 2026-05-01
-**Author resuming:** Ansuman (returning from 10-day vacation)
-**Branch:** `main`
+**Last updated:** 2026-05-17
+**Branch:** `main` (2 commits ahead of origin — push when ready)
 **Remote:** `https://github.com/Ansumanbhujabal/Pugmarks.git`
 
 ---
 
 ## TL;DR — Where to resume
 
-You finished **Task 1 (scaffolding)** and stopped before **Task 2 (Pydantic schemas)**.
-The next thing to do is open `docs/superpowers/plans/2026-05-01-pugmark-v1.md`, scroll to **Task 2**, and execute it. Either:
+**Task 2 (Pydantic schemas) is done.** The next thing to do is **Task 3 (File-based cache)** — `docs/superpowers/plans/2026-05-01-pugmark-v1.md` line 566.
 
-- **By yourself,** following the TDD steps in the plan, OR
-- **With Claude Code,** invoking `superpowers:subagent-driven-development` and dispatching the next implementer subagent for Task 2.
+Resume via:
+- `superpowers:subagent-driven-development` and dispatch an implementer subagent for Task 3, OR
+- Execute it manually following the TDD steps in the plan.
 
-Plan, spec, and conversation context are all committed. Just clone and go.
+Plan, spec, and conversation context are all committed.
 
 ```bash
 git clone https://github.com/Ansumanbhujabal/Pugmarks.git pugmark
@@ -47,6 +46,15 @@ uv run ruff check .    # should pass cleanly
 - Verified: `uv sync`, all imports OK, `pytest -q` clean, `ruff check .` clean
 - Spec compliance review ✅ + code quality review ✅ (one minor unused-import issue fixed)
 
+### Task 2 — Pydantic Schemas (commits `aad05a4`, `f56bb09`)
+- `pugmark/schemas.py`: 10 models (`Chapter`, `Candidate`, `ConfirmedTaxon`, `ImageRef`, `Sighting`, `TaxonCard`, `ExtractionMetrics`, `ValidationMetrics`, `EvalRun`, `Gallery`) + `Chapter.offset_to_page()` helper
+- `tests/test_schemas.py`: 13 tests pass — base 6 + 6 parametrized `offset_to_page` boundaries + 1 `fuzzy_score` bounds test
+- Spec compliance review ✅ (`# noqa: F401` on `Sighting`/`TaxonCard` test imports accepted as minimal-friction resolution)
+- Code quality review APPROVED_WITH_NITS → 2 Important findings fixed in follow-up commit `f56bb09`:
+  - `ConfirmedTaxon.fuzzy_score` now bounded `[0.0, 1.0]` (matches `best_score/100` convention in Task 9 validate stage)
+  - `Chapter.offset_to_page` now has parametrized coverage at boundaries
+- `ruff check .` clean
+
 ---
 
 ## Pending — In recommended execution order
@@ -56,8 +64,7 @@ Each step in the plan includes complete code, exact commands, and expected outpu
 
 | # | Task | Files | Dep on |
 |---|---|---|---|
-| **T2** | Pydantic schemas | `pugmark/schemas.py`, `tests/test_schemas.py` | T1 |
-| T3 | File-based cache | `pugmark/cache.py`, `tests/test_cache.py` | T2 |
+| **T3** | File-based cache | `pugmark/cache.py`, `tests/test_cache.py` | T2 |
 | T4 | Observability (Langfuse + LiteLLM callback) | `pugmark/observability.py`, test | none |
 | T5 | LLM client (LiteLLM + provider fallback) | `pugmark/llm.py`, test | T2 |
 | T6 | Prompt registry + extract_taxa.v1.j2 | `pugmark/prompt_registry.py`, `prompts/extract_taxa.v1.j2`, test | none |
