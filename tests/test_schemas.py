@@ -129,3 +129,55 @@ def test_gallery_can_have_no_eval_metrics() -> None:
         eval_metrics=None,
     )
     assert gallery.eval_metrics is None
+
+
+@pytest.mark.parametrize(
+    ("char_offset", "expected_page"),
+    [
+        (0, 1),     # at first offset → page 1
+        (50, 1),    # mid first page
+        (100, 2),   # at second offset boundary → page 2
+        (199, 2),   # just before third boundary
+        (200, 3),   # at third offset boundary → page 3
+        (999, 3),   # past last offset → clamps to last page
+    ],
+)
+def test_chapter_offset_to_page(char_offset: int, expected_page: int) -> None:
+    chapter = Chapter(
+        book="X",
+        number=1,
+        title="T",
+        source_pdf=Path("/tmp/x.pdf"),
+        page_start=1,
+        page_end=3,
+        raw_text="",
+        normalized_text="",
+        page_offsets=[0, 100, 200],
+        ingest_version="v1",
+    )
+    assert chapter.offset_to_page(char_offset) == expected_page
+
+
+def test_confirmed_taxon_fuzzy_score_bounds() -> None:
+    c = Candidate(
+        surface_form="x",
+        proposed_name="x",
+        kingdom_hint="animalia",
+        context_sentence="x",
+        context_window="x",
+        char_offset=0,
+        page=1,
+        llm_confidence=0.5,
+        extractor_version="v1",
+    )
+    with pytest.raises(ValidationError):
+        ConfirmedTaxon(
+            canonical_name="X",
+            vernacular="x",
+            wikidata_qid="Q1",
+            rank="species",
+            lineage={},
+            validation_method="sparql_fuzzy",
+            fuzzy_score=1.5,  # out of [0.0, 1.0]
+            source_candidates=[c],
+        )

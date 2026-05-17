@@ -61,7 +61,7 @@ class ConfirmedTaxon(BaseModel):
     rank: str
     lineage: dict[str, str] = Field(default_factory=dict)
     validation_method: Literal["sparql_exact", "sparql_fuzzy", "alias", "manual"]
-    fuzzy_score: float | None = None
+    fuzzy_score: float | None = Field(default=None, ge=0.0, le=1.0)
     source_candidates: list[Candidate]
 
 
