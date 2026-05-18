@@ -1,0 +1,6 @@
+{
+  "title": "Tiger",
+  "extract": "The tiger (Panthera tigris) is the largest living cat species.",
+  "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/Tiger"}},
+  "thumbnail": {"source": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Walking_tiger_female.jpg/640px-Walking_tiger_female.jpg", "width": 640, "height": 427}
+}

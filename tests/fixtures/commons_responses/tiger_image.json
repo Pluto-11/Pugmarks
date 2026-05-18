@@ -1,0 +1,17 @@
+{
+  "query": {
+    "pages": {
+      "1": {
+        "imageinfo": [{
+          "url": "https://upload.wikimedia.org/wikipedia/commons/3/3f/Walking_tiger_female.jpg",
+          "extmetadata": {
+            "LicenseShortName": {"value": "CC BY-SA 4.0"},
+            "Artist": {"value": "Hollingsworth, John and Karen"}
+          },
+          "width": 4000,
+          "height": 2670
+        }]
+      }
+    }
+  }
+}
