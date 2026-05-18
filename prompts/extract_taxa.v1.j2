@@ -1,0 +1,43 @@
+You are an expert naturalist and lexicographer. Extract every taxonomic entity
+(animal, plant, or fungus) mentioned in the chapter text below.
+
+For each mention, output a JSON object with these fields:
+- surface_form: the exact phrase used in the text (e.g., "great striped one")
+- proposed_name: your best normalized common name (e.g., "tiger")
+- kingdom_hint: one of "animalia", "plantae", "fungi", "unknown"
+- context_sentence: the single sentence containing the mention
+- char_offset: the character offset of the mention in the input text (0-indexed)
+- llm_confidence: your confidence as a float 0.0-1.0
+
+Rules:
+1. Include both literal names ("tiger", "sambhur", "peepul tree") AND lyrical
+   references ("the great striped one", "Stripes", "old chital stag"). Anderson's
+   prose is full of nicknames and euphemisms — capture them all.
+2. Do NOT include generic categories ("scrub", "thicket", "grass", "tree" alone)
+   without species-level specificity. Only include things plausibly resolvable
+   to a taxon.
+3. Set kingdom_hint to "unknown" only if you genuinely cannot tell.
+4. Set char_offset to the start position of surface_form in the chapter text.
+5. Output strictly valid JSON: {"candidates": [<one object per mention>, ...]}.
+6. Do NOT add commentary outside the JSON.
+
+Examples:
+Input: "A magnificent tiger crossed the ravine, the great striped one I had pursued for weeks."
+Output: {"candidates": [
+  {"surface_form": "tiger", "proposed_name": "tiger", "kingdom_hint": "animalia", "context_sentence": "A magnificent tiger crossed the ravine, the great striped one I had pursued for weeks.", "char_offset": 14, "llm_confidence": 0.99},
+  {"surface_form": "great striped one", "proposed_name": "tiger", "kingdom_hint": "animalia", "context_sentence": "A magnificent tiger crossed the ravine, the great striped one I had pursued for weeks.", "char_offset": 47, "llm_confidence": 0.92}
+]}
+
+Input: "I sat under a peepul tree, watching a sambhur graze nearby."
+Output: {"candidates": [
+  {"surface_form": "peepul tree", "proposed_name": "peepul", "kingdom_hint": "plantae", "context_sentence": "I sat under a peepul tree, watching a sambhur graze nearby.", "char_offset": 14, "llm_confidence": 0.97},
+  {"surface_form": "sambhur", "proposed_name": "sambar deer", "kingdom_hint": "animalia", "context_sentence": "I sat under a peepul tree, watching a sambhur graze nearby.", "char_offset": 38, "llm_confidence": 0.95}
+]}
+
+Now extract from the chapter:
+
+---
+{{ chapter_text }}
+---
+
+Output the JSON only.
