@@ -237,9 +237,13 @@ async def _validate_in_book(
     *,
     entity_type: EntityTypeSpec,
     chapter: Chapter,
-    judge_model: str = "gemini/gemini-2.5-pro",
+    judge_config: LLMConfig | None = None,
 ) -> tuple[list[ConfirmedEntity], list[Candidate]]:
-    """Tier 2: in-book crossref + judge consensus."""
+    """Tier 2: in-book crossref + judge consensus.
+
+    `judge_config` defaults to LLMConfig.from_env("judge") so PUGMARK_JUDGE_MODEL /
+    PUGMARK_JUDGE_PROVIDERS in .env drive the judge model + fallback chain.
+    """
     text = chapter.normalized_text
     grouped: dict[str, list[Candidate]] = defaultdict(list)
     counts: dict[str, int] = {}
@@ -250,7 +254,9 @@ async def _validate_in_book(
         if key not in counts:
             counts[key] = _count_word_boundary_occurrences(text, cand.surface_form)
 
-    judge_config = LLMConfig(providers=[judge_model], max_retries=1, timeout_s=60.0)
+    if judge_config is None:
+        judge_config = LLMConfig.from_env(role="judge")
+        judge_config.timeout_s = 60.0
     judge_client = LLMClient(judge_config)
 
     confirmed: list[ConfirmedEntity] = []

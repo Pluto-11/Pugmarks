@@ -36,7 +36,6 @@ from pugmark.validate import validate_candidates
 logger = logging.getLogger(__name__)
 
 AUTOLABEL_VERSION = "v1"
-DEFAULT_JUDGE_MODEL = "gemini/gemini-2.5-pro"
 DEFAULT_N_CALLS = 3
 DEFAULT_MIN_VOTES = 2
 JUDGE_SYSTEM_PROMPT = (
@@ -87,7 +86,7 @@ async def auto_label_chapter(
     *,
     cache: Cache,
     entity_type: EntityTypeSpec | None = None,
-    judge_model: str = DEFAULT_JUDGE_MODEL,
+    judge_model: str | None = None,
     n_calls: int = DEFAULT_N_CALLS,
     min_votes: int = DEFAULT_MIN_VOTES,
     prompt_dir: Path = Path("prompts"),
@@ -110,7 +109,11 @@ async def auto_label_chapter(
     )
     prompt_version = f"{entity_type.name}_{entity_type.spec_version}"
 
-    judge_config = LLMConfig(providers=[judge_model], max_retries=1, timeout_s=120.0)
+    if judge_model is not None:
+        judge_config = LLMConfig(providers=[judge_model], max_retries=1, timeout_s=120.0)
+    else:
+        judge_config = LLMConfig.from_env(role="judge")
+        judge_config.timeout_s = 120.0
     client = LLMClient(judge_config)
 
     all_calls = await asyncio.gather(
@@ -196,7 +199,7 @@ async def auto_label_book(
     *,
     cache: Cache,
     out_dir: Path,
-    judge_model: str = DEFAULT_JUDGE_MODEL,
+    judge_model: str | None = None,
 ) -> dict[str, Path]:
     """Run auto_label_chapter for every analyzer-proposed type.
 

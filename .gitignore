@@ -36,3 +36,6 @@ eval/runs/*.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local test fixtures (not committed — copyrighted source material)
+tests/*.pdf
