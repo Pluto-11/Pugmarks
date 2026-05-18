@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import click
@@ -20,15 +19,13 @@ from dotenv import load_dotenv
 from eval.auto_label import auto_label_chapter
 from eval.runner import run_eval
 from pugmark.analyzer import analyze_book
+from pugmark.api import extract_gallery
 from pugmark.cache import Cache
-from pugmark.enrich import enrich_taxa
-from pugmark.extract import extract_candidates
-from pugmark.ingest import list_chapters, load_chapter
+from pugmark.ingest import list_chapters
 from pugmark.llm import LLMConfig
 from pugmark.observability import init_observability
+from pugmark.prompts_cli import prompts as prompts_group
 from pugmark.render import render_html
-from pugmark.schemas import Gallery
-from pugmark.validate import validate_candidates
 
 PUGMARK_VERSION = "0.1.0"
 
@@ -47,24 +44,52 @@ def cli(verbose: bool) -> None:
 
 @cli.command()
 @click.argument("pdf", type=click.Path(exists=True, path_type=Path))
-def chapters(pdf: Path) -> None:
-    """List chapters detected in PDF."""
+@click.option(
+    "--content-only",
+    is_flag=True,
+    help="Hide front- and back-matter (cover, contents, preface, index, author).",
+)
+def chapters(pdf: Path, content_only: bool) -> None:
+    """List chapters detected in PDF, with kind classification."""
     found = list_chapters(pdf)
     if not found:
         click.echo("No chapters detected (PDF has no outline).")
         return
-    for ch in found:
+    kind_glyph = {"content": " ", "front": "·", "back": "·"}
+    shown = [c for c in found if c["kind"] == "content"] if content_only else found
+    for ch in shown:
+        glyph = kind_glyph.get(ch["kind"], "?")
         click.echo(
-            f"{ch['number']:>3}.  pp.{ch['page_start']:>4}-{ch['page_end']:<4}  {ch['title']}"
+            f"{ch['number']:>3}. {glyph} {ch['kind']:<7} "
+            f"pp.{ch['page_start']:>4}-{ch['page_end']:<4}  {ch['title']}"
+        )
+    if not content_only:
+        n_content = sum(1 for c in found if c["kind"] == "content")
+        n_front = sum(1 for c in found if c["kind"] == "front")
+        n_back = sum(1 for c in found if c["kind"] == "back")
+        click.echo(
+            f"\n  ({n_content} content / {n_front} front-matter / {n_back} back-matter)"
         )
 
 
 @cli.command()
 @click.argument("pdf", type=click.Path(exists=True, path_type=Path))
 def analyze(pdf: Path) -> None:
-    """Show the entity types Pugmark would extract from this PDF."""
+    """Show the book type + entity types Pugmark would extract from this PDF."""
     cache = Cache.from_env()
     schema = asyncio.run(analyze_book(pdf, cache=cache))
+    bt = schema.book_type
+    if bt is not None:
+        click.echo("Book type:")
+        click.echo(f"  genre        : {bt.genre}")
+        click.echo(f"  period       : {bt.period}")
+        click.echo(f"  setting      : {bt.setting}")
+        click.echo(f"  themes       : {', '.join(bt.themes)}")
+        click.echo(f"  target reader: {bt.target_reader}")
+        click.echo(f"  summary      : {bt.summary}")
+        click.echo("")
+    else:
+        click.echo("Book type: (classification unavailable)\n")
     click.echo(f"Analyzer proposed {len(schema.proposed_types)} type(s) for {pdf.name}:")
     for spec in schema.proposed_types:
         qclass = spec.wikidata_qclass or "--"
@@ -84,33 +109,18 @@ async def _run_pipeline(pdf: Path, chapter_num: int, out: Path) -> None:
     cache = Cache.from_env()
     llm_config = LLMConfig.from_env()
 
-    click.echo(f"[1/5] Loading chapter {chapter_num} from {pdf.name}...")
-    ch = load_chapter(pdf, chapter_num)
+    click.echo(f"[pipeline] PDF={pdf.name} chapter={chapter_num} primary={llm_config.providers[0]}")
+    click.echo("[pipeline] Analyzing book → realizing schema → per-type extract/validate/enrich...")
 
-    click.echo(f"[2/5] Extracting taxa via LLM ({llm_config.providers[0]})...")
-    candidates = await extract_candidates(
-        ch, llm_config=llm_config, prompt_dir=Path("prompts"), cache=cache
-    )
-    click.echo(f"      → {len(candidates)} candidates")
-
-    click.echo("[3/5] Validating against Wikidata...")
-    confirmed, unresolved = await validate_candidates(candidates, cache=cache)
-    click.echo(f"      → {len(confirmed)} confirmed · {len(unresolved)} unresolved")
-
-    click.echo("[4/5] Enriching with Wikipedia + Commons...")
-    cards = await enrich_taxa(confirmed, chapter=ch, cache=cache)
-    click.echo(f"      → {len(cards)} cards built")
-
-    gallery = Gallery(
-        chapter=ch,
-        cards=cards,
-        unresolved=unresolved,
-        generated_at=datetime.now(),
-        pugmark_version=PUGMARK_VERSION,
-        eval_metrics=None,
+    gallery = await extract_gallery(
+        pdf, chapter_num, cache=cache, llm_config=llm_config
     )
 
-    click.echo(f"[5/5] Rendering to {out}...")
+    total_cards = sum(len(cs) for cs in gallery.cards_by_type.values())
+    for type_name, cards in gallery.cards_by_type.items():
+        click.echo(f"  {type_name}: {len(cards)} cards")
+    click.echo(f"  unresolved: {len(gallery.unresolved)}")
+    click.echo(f"[render] writing {total_cards} cards to {out}")
     out.write_text(render_html(gallery))
     click.echo(f"✓ Done. Open {out} in a browser.")
 
@@ -121,9 +131,10 @@ async def _run_pipeline(pdf: Path, chapter_num: int, out: Path) -> None:
 @click.option("--out", type=click.Path(path_type=Path), required=True, help="Output JSON path")
 @click.option(
     "--judge-model",
-    default="gemini/gemini-2.5-pro",
+    default=None,
     show_default=True,
-    help="LiteLLM model identifier for the judge (must differ from production model)",
+    help="LiteLLM model identifier for the judge. If unset, uses PUGMARK_JUDGE_MODEL / "
+    "PUGMARK_JUDGE_PROVIDERS from .env with full fallback chain.",
 )
 @click.option("--n-calls", default=3, show_default=True, help="Judge call count")
 @click.option("--min-votes", default=2, show_default=True, help="Min votes to survive")
@@ -136,7 +147,7 @@ def autolabel(
     pdf: Path,
     chapter: int,
     out: Path,
-    judge_model: str,
+    judge_model: str | None,
     n_calls: int,
     min_votes: int,
     all_types: bool,
@@ -151,7 +162,7 @@ async def _run_autolabel(
     pdf: Path,
     chapter_num: int,
     out: Path,
-    judge_model: str,
+    judge_model: str | None,
     n_calls: int,
     min_votes: int,
     all_types: bool,
@@ -169,7 +180,8 @@ async def _run_autolabel(
             click.echo(f"    {type_name}: {path}")
         return
 
-    click.echo(f"[autolabel] judge={judge_model} n_calls={n_calls} min_votes={min_votes}")
+    judge_label = judge_model or "PUGMARK_JUDGE_MODEL/.env"
+    click.echo(f"[autolabel] judge={judge_label} n_calls={n_calls} min_votes={min_votes}")
     truth = await auto_label_chapter(
         pdf,
         chapter_num,
@@ -242,6 +254,7 @@ def eval_cmd(
 # Click does not allow a subcommand named "eval" because of Python's builtin.
 # Register under the name "eval":
 cli.add_command(eval_cmd, name="eval")
+cli.add_command(prompts_group, name="prompts")
 
 
 if __name__ == "__main__":

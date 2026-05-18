@@ -1,0 +1,24 @@
+You are a literary editor classifying a book from a sample.
+
+Read the sample below and return JSON describing the book's type. Be CONCRETE
+and SPECIFIC — say "natural-history hunting memoir" not "non-fiction"; say
+"colonial India, 1900s-1950s" not "old"; say "South Indian forests, hill
+stations" not "outdoors".
+
+Schema (return exactly these fields, no extras, no commentary):
+{
+  "genre":        <string — specific literary genre or sub-genre>,
+  "period":       <string — historical period the book is set in or written in>,
+  "setting":      <string — geographic / cultural setting>,
+  "themes":       [<3-7 strings, recurring topics; e.g. "big-game hunting",
+                   "British India", "wildlife behavior">],
+  "target_reader": <string — who this book speaks to>,
+  "summary":      <string — 1-2 sentences pitching what the book is about>
+}
+
+If the sample is too thin to judge, give your best inference rather than
+hedging — the field is downstream context for entity extraction, not a
+catalog record.
+
+Sample:
+{{ sample }}
