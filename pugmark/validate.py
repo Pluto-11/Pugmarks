@@ -13,11 +13,13 @@ from collections import defaultdict
 from typing import Any
 
 import httpx
+from jinja2 import Template
 from pydantic import BaseModel
 from rapidfuzz import fuzz
 
 from pugmark.cache import Cache
 from pugmark.entity_type import EntityTypeSpec
+from pugmark.llm import LLMClient, LLMConfig
 from pugmark.schemas import Candidate, Chapter, ConfirmedEntity
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,16 @@ WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "Pugmark/0.1 (https://github.com/Ansumanbhujabal/Pugmarks)"
 FUZZY_THRESHOLD = 85  # 0-100 rapidfuzz scale
 CONCURRENCY = 10
+
+
+class _JudgeYesNo(BaseModel):
+    yes: bool
+
+
+_JUDGE_SYSTEM = (
+    'You are a careful editor. Respond only with strict JSON {"yes": true} '
+    'or {"yes": false}. No commentary.'
+)
 
 
 class _CachedResolution(BaseModel):
@@ -103,7 +115,9 @@ async def validate_candidates(
     chapter.normalized_text; promotes if count >= min_book_occurrences.
     """
     if entity_type.wikidata_qclass is None:
-        return _validate_in_book(candidates, entity_type=entity_type, chapter=chapter)
+        return await _validate_in_book(
+            candidates, entity_type=entity_type, chapter=chapter
+        )
 
     # === Tier 1: Wikidata path (existing v1+T9 code) ===
     sem = asyncio.Semaphore(CONCURRENCY)
@@ -183,13 +197,49 @@ def _count_word_boundary_occurrences(text: str, surface_form: str) -> int:
     return len(re.findall(pattern, text, flags=re.IGNORECASE))
 
 
-def _validate_in_book(
+async def _judge_one(
+    client: LLMClient, prompt_template: str, candidate_name: str, chapter_text: str
+) -> bool:
+    user_prompt = Template(prompt_template).render(
+        candidate_name=candidate_name,
+        chapter_text=chapter_text,
+    )
+    resp, _ = await client.complete_structured(
+        system=_JUDGE_SYSTEM,
+        user=user_prompt,
+        schema=_JudgeYesNo,
+        prompt_version="judge-v1",
+    )
+    return resp.yes
+
+
+async def _judge_consensus(
+    client: LLMClient,
+    entity_type: EntityTypeSpec,
+    candidate_name: str,
+    chapter_text: str,
+    n_calls: int = 3,
+) -> int:
+    """Return the number of 'yes' votes across n_calls judge calls."""
+    results = await asyncio.gather(
+        *[
+            _judge_one(
+                client, entity_type.judge_prompt_template, candidate_name, chapter_text
+            )
+            for _ in range(n_calls)
+        ]
+    )
+    return sum(1 for r in results if r)
+
+
+async def _validate_in_book(
     candidates: list[Candidate],
     *,
     entity_type: EntityTypeSpec,
     chapter: Chapter,
+    judge_model: str = "gemini/gemini-2.5-pro",
 ) -> tuple[list[ConfirmedEntity], list[Candidate]]:
-    """Tier 2: keep candidates whose surface_form appears >= min_book_occurrences."""
+    """Tier 2: in-book crossref + judge consensus."""
     text = chapter.normalized_text
     grouped: dict[str, list[Candidate]] = defaultdict(list)
     counts: dict[str, int] = {}
@@ -200,12 +250,26 @@ def _validate_in_book(
         if key not in counts:
             counts[key] = _count_word_boundary_occurrences(text, cand.surface_form)
 
+    judge_config = LLMConfig(providers=[judge_model], max_retries=1, timeout_s=60.0)
+    judge_client = LLMClient(judge_config)
+
     confirmed: list[ConfirmedEntity] = []
     unresolved: list[Candidate] = []
 
     for key, cands in grouped.items():
         count = counts[key]
-        if count >= entity_type.min_book_occurrences:
+        if count < entity_type.min_book_occurrences:
+            unresolved.extend(cands)
+            continue
+
+        votes = await _judge_consensus(
+            judge_client,
+            entity_type,
+            candidate_name=cands[0].proposed_name,
+            chapter_text=text,
+        )
+
+        if votes >= entity_type.min_judge_votes:
             confirmed.append(
                 ConfirmedEntity(
                     canonical_name=cands[0].proposed_name,
@@ -214,8 +278,9 @@ def _validate_in_book(
                     wikidata_qid=None,
                     rank=entity_type.name.rstrip("s"),
                     attributes={},
-                    validation_method="in_book_crossref",
+                    validation_method="judge_consensus",
                     crossref_count=count,
+                    judge_votes=votes,
                     source_candidates=cands,
                 )
             )
