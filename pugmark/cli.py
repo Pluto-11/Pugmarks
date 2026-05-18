@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 from eval.auto_label import auto_label_chapter
 from eval.runner import run_eval
+from pugmark.analyzer import analyze_book
 from pugmark.cache import Cache
 from pugmark.enrich import enrich_taxa
 from pugmark.extract import extract_candidates
@@ -56,6 +57,18 @@ def chapters(pdf: Path) -> None:
         click.echo(
             f"{ch['number']:>3}.  pp.{ch['page_start']:>4}-{ch['page_end']:<4}  {ch['title']}"
         )
+
+
+@cli.command()
+@click.argument("pdf", type=click.Path(exists=True, path_type=Path))
+def analyze(pdf: Path) -> None:
+    """Show the entity types Pugmark would extract from this PDF."""
+    cache = Cache.from_env()
+    schema = asyncio.run(analyze_book(pdf, cache=cache))
+    click.echo(f"Analyzer proposed {len(schema.proposed_types)} type(s) for {pdf.name}:")
+    for spec in schema.proposed_types:
+        qclass = spec.wikidata_qclass or "--"
+        click.echo(f"  {spec.name:>14}  (Wikidata: {qclass})  -- {spec.description}")
 
 
 @cli.command()

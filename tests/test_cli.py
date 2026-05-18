@@ -163,3 +163,53 @@ def test_eval_strict_fails_on_f1_regression(
     )
     assert result.exit_code == 1, result.output
     assert "REGRESSION" in result.output
+
+
+def test_help_includes_analyze() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "analyze" in result.output
+
+
+def test_analyze_command_prints_proposed_types(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`pugmark analyze <pdf>` prints the analyzer's proposed types."""
+    from datetime import datetime
+
+    from pugmark.entity_type import BookSchema, EntityTypeSpec
+
+    fake_schema = BookSchema(
+        book_id="sample_chapter",
+        proposed_types=[
+            EntityTypeSpec(
+                name="taxa",
+                description="animals + plants",
+                wikidata_qclass="Q16521",
+                extraction_prompt_template="x",
+                judge_prompt_template="x",
+            ),
+            EntityTypeSpec(
+                name="people",
+                description="characters",
+                wikidata_qclass="Q5",
+                extraction_prompt_template="x",
+                judge_prompt_template="x",
+            ),
+        ],
+        analyzer_version="v1",
+        analyzed_at=datetime.now(),
+    )
+
+    async def fake_analyze(*args, **kwargs):
+        return fake_schema
+
+    monkeypatch.setattr("pugmark.cli.analyze_book", fake_analyze)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["analyze", str(FIXTURE)])
+    assert result.exit_code == 0, result.output
+    assert "taxa" in result.output
+    assert "people" in result.output
+    assert "Q5" in result.output
