@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from eval.metrics import compute_extraction_metrics
 from pugmark.schemas import Candidate
 
@@ -49,3 +51,27 @@ def test_hallucination() -> None:
     # "dragon" not in chapter_text → hallucination
     assert m.hallucination_rate == 0.5
     assert m.precision == 0.5
+
+
+def test_extraction_metrics_per_type_breakdown() -> None:
+    """compute_extraction_metrics returns per-type breakdown when entity_type field is set."""
+    truth = [
+        {"surface_form": "tiger", "expected_wikidata_qid": "Q15324", "entity_type": "taxa"},
+        {"surface_form": "Anderson", "expected_wikidata_qid": "Q1", "entity_type": "people"},
+        {"surface_form": "Sivanipalli", "expected_wikidata_qid": "Q2", "entity_type": "places"},
+    ]
+    extracted = [
+        _candidate("tiger"),
+        _candidate("Anderson").model_copy(update={"entity_type": "people"}),
+        # places missed
+    ]
+    m = compute_extraction_metrics(
+        extracted, truth, chapter_text="A tiger appeared. Anderson watched in Sivanipalli."
+    )
+    # Aggregate
+    assert m.recall == pytest.approx(2 / 3, abs=1e-6)
+    # Per-type breakdown
+    assert m.by_type is not None
+    assert m.by_type["taxa"].recall == 1.0
+    assert m.by_type["people"].recall == 1.0
+    assert m.by_type["places"].recall == 0.0

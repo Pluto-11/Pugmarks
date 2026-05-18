@@ -34,11 +34,42 @@ def compute_extraction_metrics(
     hallucinations = sum(1 for f in extracted_forms if f not in text_lower)
     hallucination_rate = hallucinations / len(extracted_forms) if extracted_forms else 0.0
 
+    # Per-type breakdown
+    by_type: dict[str, ExtractionMetrics] = {}
+    type_names = {t.get("entity_type", "taxa") for t in truth} | {
+        c.entity_type for c in extracted
+    }
+    for tn in type_names:
+        t_truth = [t for t in truth if t.get("entity_type", "taxa") == tn]
+        t_extracted = [c for c in extracted if c.entity_type == tn]
+        if not t_truth and not t_extracted:
+            continue
+        t_truth_forms = {t["surface_form"].lower() for t in t_truth}
+        t_extracted_forms = [c.surface_form.lower() for c in t_extracted]
+        t_extracted_set = set(t_extracted_forms)
+        t_correct = t_truth_forms & t_extracted_set
+        t_precision = len(t_correct) / len(t_extracted_set) if t_extracted_set else 0.0
+        t_recall = len(t_correct) / len(t_truth_forms) if t_truth_forms else 0.0
+        t_hall = (
+            sum(1 for f in t_extracted_forms if f not in text_lower)
+            / len(t_extracted_forms)
+            if t_extracted_forms
+            else 0.0
+        )
+        by_type[tn] = ExtractionMetrics(
+            precision=t_precision,
+            recall=t_recall,
+            f1=_f1(t_precision, t_recall),
+            hallucination_rate=t_hall,
+            by_type=None,  # leaf
+        )
+
     return ExtractionMetrics(
         precision=precision,
         recall=recall,
         f1=_f1(precision, recall),
         hallucination_rate=hallucination_rate,
+        by_type=by_type or None,
     )
 
 

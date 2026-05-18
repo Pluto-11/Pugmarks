@@ -166,6 +166,10 @@ class ExtractionMetrics(BaseModel):
     recall: float = Field(..., ge=0.0, le=1.0)
     f1: float = Field(..., ge=0.0, le=1.0)
     hallucination_rate: float = Field(..., ge=0.0, le=1.0)
+    by_type: dict[str, ExtractionMetrics] | None = None
+
+
+ExtractionMetrics.model_rebuild()
 
 
 class ValidationMetrics(BaseModel):
