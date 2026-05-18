@@ -123,3 +123,78 @@ Everything below is **codeless** — code is done. These are operations against 
 - **Cache:** file-based, `~/.cache/pugmark/`, HF Spaces `/data` aware via `SPACE_ID`
 - **Observability:** Langfuse cloud free tier (self-host deferred to v3)
 - **Prompts:** in-repo Jinja2 + Langfuse runtime overlay with file fallback
+
+---
+
+## v2 — Universal bestiary (code-complete 2026-05-18)
+
+### Done — every task in the v2 plan
+
+| Task | Commit | What it ships |
+|---|---|---|
+| T1  | `dc5acc0` | Generalized schemas with v1 aliases (Candidate.entity_type, ConfirmedEntity, EntityCard, Gallery.cards_by_type) |
+| T2  | `5f278bb` | EntityTypeSpec + BookSchema Pydantic models |
+| T3+T4 | `d53f72f` | Plugin registry + built-in people/places prompts |
+| T5+T6 | `eae5b8d` | Book analyzer (Gemini 2.5 Pro proposes per-book types) |
+| T7  | `6196b9a` | Schema realizer (merge proposed + registered + overrides) |
+| T8  | `cb3dce8` | extract.py type-parameterized |
+| T9  | `a4dd5c5` | validate.py Wikidata Q-class templating |
+| T10 | `ca7bdbb` | in-book cross-reference tier |
+| T11 | `86a9263` | judge consensus tier |
+| T12 | `05b8cf6` | tiered enrich with LLM-summary fallback |
+| T13 | `32ed325` | render cards_by_type + placeholder + AI-summarized badge |
+| T14 | `184363d` | pugmark analyze CLI subcommand |
+| T15 | `1a04eea` | library API (extract_gallery + __init__ exports) |
+| T16 | `39515d1` | Gradio app uses extract_gallery with type-prefixed captions |
+| T17 | `42facad` | per-type ExtractionMetrics.by_type |
+| T18 | `ec696d7` | eval runner per-type + multi-file ground truth |
+| T19 | `67ec891` | per-type autolabel + auto_label_book + --all-types CLI |
+| T20 | `<sha>`   | end-to-end integration test + this STATUS update |
+
+### Test count
+- v1 baseline: 72 tests
+- v2 delta: +42 tests
+- **Total: 114 tests, all passing, ruff clean**
+
+### v1 backward compatibility (still working)
+- `TaxonCard`, `ConfirmedTaxon` aliased to `EntityCard`, `ConfirmedEntity`
+- `Candidate(kingdom_hint=...)` → `entity_type="taxa"` + `type_attrs["kingdom_hint"]` via model_validator
+- `Gallery(cards=...)` → `cards_by_type={"taxa": cards}` via model_validator
+- `enrich_taxa` alias of `enrich_confirmed`
+- Read-side `@property` shims on Candidate.kingdom_hint, ConfirmedEntity.lineage, EntityCard.taxon, Gallery.cards (temporary; remove when v1 consumers are gone)
+
+### v2 architecture summary
+
+```
+PDF
+ ▼
+ingest (unchanged)
+ ▼
+analyze (NEW: LLM proposes per-book entity types) ──► BookSchema
+ ▼
+realize-schema (NEW: merge proposed + registered + overrides) ──► list[EntityTypeSpec]
+ ▼
+per-type parallel fan-out:
+   extract (type-parameterized prompt)
+ ──► validate (tiered: Wikidata Q-class → in-book crossref → judge consensus)
+ ──► enrich (tiered: Wikipedia+Commons → LLM-in-book summary)
+ ▼
+render (cards_by_type sections + placeholder + AI-summarized badge)
+```
+
+### Final-mile — environment / account-level (no code left)
+
+| Step | Command | Requires |
+|---|---|---|
+| Push 47+ commits to GitHub | `git push origin main` | GitHub auth |
+| Auto-label all proposed types for a real book | `uv run pugmark autolabel <pdf> --chapter N --out eval/ground_truth/ --all-types` | `GEMINI_API_KEY` |
+| Capture v2 baseline metrics | `uv run pugmark eval <pdf> --chapter N --ground-truth eval/ground_truth/` | Same key |
+| Fill README baseline numbers | Edit `README.md` baseline table | Just text editing |
+| HF Spaces deploy | `git remote add hf ... && git push hf main` + secrets | HF account + token |
+
+### Known follow-ups (none block v2)
+
+- **Property shim removal** (T1 review item): the 4 read-side `@property` shims on schemas should be deprecated with `warnings.warn(DeprecationWarning)` and removed when downstream v1 consumers are gone. See T1 spec compliance review for the recommended pattern.
+- **LLM payload `type_attrs` forwarding** (T8 review item): `extract.py` currently drops "extra" fields from the LLM payload (e.g. `kingdom_hint`). For full v1 parity it should populate `type_attrs` from any payload keys not in the Candidate schema. Cheap to add when the next non-taxa type's enricher wants to use type-specific attributes.
+- **`ConfirmedEntity.attributes` type widening** (T1 review item): currently `dict[str, str]`. For nested attributes (people: `{"birth": {"year": "1820"}}`) it should be `dict[str, Any]`. Fix before the first non-taxa enricher writes structured sub-attributes.
+- **SPARQL quote escaping in validate** (v1 review carry-over): names containing `"` will break the SPARQL query. Worth escaping before any external user uploads a book with such names.
