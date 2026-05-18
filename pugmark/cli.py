@@ -127,6 +127,11 @@ async def _run_pipeline(pdf: Path, chapter_num: int, out: Path) -> None:
 )
 @click.option("--n-calls", default=3, show_default=True, help="Judge call count")
 @click.option("--min-votes", default=2, show_default=True, help="Min votes to survive")
+@click.option(
+    "--all-types",
+    is_flag=True,
+    help="Run auto-labeling for every analyzer-proposed type, one file per type.",
+)
 def autolabel(
     pdf: Path,
     chapter: int,
@@ -134,9 +139,12 @@ def autolabel(
     judge_model: str,
     n_calls: int,
     min_votes: int,
+    all_types: bool,
 ) -> None:
     """Auto-generate ground truth labels via LLM-as-judge + Wikidata roundtrip."""
-    asyncio.run(_run_autolabel(pdf, chapter, out, judge_model, n_calls, min_votes))
+    asyncio.run(
+        _run_autolabel(pdf, chapter, out, judge_model, n_calls, min_votes, all_types)
+    )
 
 
 async def _run_autolabel(
@@ -146,8 +154,21 @@ async def _run_autolabel(
     judge_model: str,
     n_calls: int,
     min_votes: int,
+    all_types: bool,
 ) -> None:
     cache = Cache.from_env()
+    if all_types:
+        from eval.auto_label import auto_label_book
+
+        click.echo(f"[autolabel] all-types mode, out_dir={out}")
+        paths = await auto_label_book(
+            pdf, chapter_num, cache=cache, out_dir=out, judge_model=judge_model
+        )
+        click.echo(f"✓ Wrote {len(paths)} per-type ground truth file(s):")
+        for type_name, path in paths.items():
+            click.echo(f"    {type_name}: {path}")
+        return
+
     click.echo(f"[autolabel] judge={judge_model} n_calls={n_calls} min_votes={min_votes}")
     truth = await auto_label_chapter(
         pdf,

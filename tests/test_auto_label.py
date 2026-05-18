@@ -99,7 +99,8 @@ async def test_majority_vote_keeps_two_of_three(
     surface_forms = sorted(t["surface_form"] for t in truth)
     assert surface_forms == ["peepul tree", "sambhur", "tiger"]
     assert all("expected_wikidata_qid" in t for t in truth)
-    assert all("expected_kingdom" in t for t in truth)
+    assert all("entity_type" in t for t in truth)
+    assert all(t["entity_type"] == "taxa" for t in truth)
     assert all("page" in t for t in truth)
     assert judge_mock.await_count == 3, "expected 3 independent judge calls"
 
@@ -187,3 +188,56 @@ async def test_below_quorum_returns_empty(
         FIXTURE_PDF, 1, cache=cache, prompt_dir=Path("prompts")
     )
     assert truth == []
+
+
+@pytest.mark.asyncio
+async def test_auto_label_one_type_passes_entity_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """auto_label_chapter accepts an explicit EntityTypeSpec."""
+    from eval import auto_label
+    from pugmark.entity_type import EntityTypeSpec
+    from pugmark.schemas import ConfirmedEntity
+
+    spec = EntityTypeSpec(
+        name="people",
+        description="x",
+        wikidata_qclass="Q5",
+        extraction_prompt_template="x",
+        judge_prompt_template="x",
+    )
+    entry = {
+        "surface_form": "Sherlock",
+        "proposed_name": "Sherlock Holmes",
+        "kingdom_hint": "animalia",  # ignored; entity_type comes from spec
+        "context_sentence": "Sherlock entered.",
+        "llm_confidence": 0.95,
+    }
+    monkeypatch.setattr(
+        "eval.auto_label.LLMClient.complete_structured",
+        AsyncMock(side_effect=[_judge_resp([entry])] * 3),
+    )
+
+    async def fake_validate(cands, *, entity_type, chapter, cache):
+        return [
+            ConfirmedEntity(
+                canonical_name=c.proposed_name,
+                vernacular=c.proposed_name,
+                entity_type=entity_type.name,
+                wikidata_qid="Q1000",
+                rank="character",
+                attributes={},
+                validation_method="sparql_exact",
+                source_candidates=[c],
+            )
+            for c in cands
+        ], []
+
+    monkeypatch.setattr("eval.auto_label.validate_candidates", fake_validate)
+
+    cache = Cache(root=tmp_path / "cache")
+    truth = await auto_label.auto_label_chapter(
+        FIXTURE_PDF, 1, cache=cache, entity_type=spec
+    )
+    assert len(truth) == 1
+    assert truth[0]["entity_type"] == "people"
