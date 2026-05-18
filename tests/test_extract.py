@@ -33,7 +33,9 @@ def chapter() -> Chapter:
 
 
 @pytest.mark.asyncio
-async def test_extract_returns_candidates(chapter: Chapter, tmp_path: Path) -> None:
+async def test_extract_returns_candidates(
+    chapter: Chapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake_llm_payload = {
         "candidates": [
             {
@@ -60,7 +62,11 @@ async def test_extract_returns_candidates(chapter: Chapter, tmp_path: Path) -> N
 
     from pugmark import extract as extract_mod
 
-    extract_mod.LLMClient.complete_structured = AsyncMock(side_effect=fake_complete_structured)
+    monkeypatch.setattr(
+        extract_mod.LLMClient,
+        "complete_structured",
+        AsyncMock(side_effect=fake_complete_structured),
+    )
 
     from pugmark.cache import Cache
     cache = Cache(root=tmp_path / "cache")
@@ -75,7 +81,9 @@ async def test_extract_returns_candidates(chapter: Chapter, tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_extract_uses_cache_on_second_call(chapter: Chapter, tmp_path: Path) -> None:
+async def test_extract_uses_cache_on_second_call(
+    chapter: Chapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from pugmark import extract as extract_mod
     from pugmark.cache import Cache
 
@@ -91,8 +99,10 @@ async def test_extract_uses_cache_on_second_call(chapter: Chapter, tmp_path: Pat
             }
         ]
     }
-    mock = AsyncMock(return_value=(_ExtractResponse(**fake_llm_payload), "gemini/gemini-2.0-flash"))
-    extract_mod.LLMClient.complete_structured = mock
+    mock = AsyncMock(
+        return_value=(_ExtractResponse(**fake_llm_payload), "gemini/gemini-2.0-flash")
+    )
+    monkeypatch.setattr(extract_mod.LLMClient, "complete_structured", mock)
 
     cache = Cache(root=tmp_path / "cache")
     await extract_candidates(
