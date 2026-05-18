@@ -75,3 +75,45 @@ async def test_many_to_one_collapse(tmp_path: Path) -> None:
 
     assert len(confirmed) == 1
     assert len(confirmed[0].source_candidates) == 2
+
+
+@pytest.mark.asyncio
+async def test_alias_match_uses_alias_method(tmp_path: Path) -> None:
+    cache = Cache(root=tmp_path / "cache")
+    with patch(
+        "pugmark.validate._sparql_query",
+        new=AsyncMock(return_value=_load_fixture("peepul_alias.json")),
+    ):
+        confirmed, unresolved = await validate_candidates(
+            [_candidate("peepul", kingdom="plantae")], cache=cache
+        )
+    assert len(confirmed) == 1
+    assert confirmed[0].validation_method == "alias"
+    assert confirmed[0].wikidata_qid == "Q193404"
+    assert len(unresolved) == 0
+
+
+@pytest.mark.asyncio
+async def test_fuzzy_fallback_attaches_misspelled_to_resolved(tmp_path: Path) -> None:
+    cache = Cache(root=tmp_path / "cache")
+    tiger_fixture = _load_fixture("tiger_exact.json")
+    empty_fixture = _load_fixture("empty.json")
+
+    async def fake_query(name: str) -> dict:
+        # "tiger" resolves; "tigr" misses → fuzzy fallback should attach it to tiger.
+        if name == "tiger":
+            return tiger_fixture
+        return empty_fixture
+
+    with patch("pugmark.validate._sparql_query", new=AsyncMock(side_effect=fake_query)):
+        confirmed, unresolved = await validate_candidates(
+            [_candidate("tiger"), _candidate("tigr")], cache=cache
+        )
+
+    assert len(unresolved) == 0
+    assert len(confirmed) == 1
+    taxon = confirmed[0]
+    assert taxon.wikidata_qid == "Q15324"
+    assert taxon.validation_method == "sparql_fuzzy"
+    assert taxon.fuzzy_score is not None and taxon.fuzzy_score >= 0.85
+    assert len(taxon.source_candidates) == 2
