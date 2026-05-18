@@ -40,6 +40,19 @@ _JUDGE_SYSTEM = (
     'or {"yes": false}. No commentary.'
 )
 
+# Per-candidate yes/no prompt used by the in-book judge-consensus tier.
+# entity_type.judge_prompt_template is the LIST-shaped extraction prompt used
+# by autolabel; this is a different question shape ("is THIS one of {type}?")
+# so we use an inline template here.
+_JUDGE_YES_NO_TEMPLATE = (
+    'Is "{{ candidate_name }}" actually a {{ entity_type }} as it appears in '
+    "the passage below? Answer based ONLY on the passage. If the surface form "
+    "is ambiguous (could be a person's name, a place, an idiom, etc.) and the "
+    "passage does not clearly support it being a {{ entity_type }}, answer no.\n\n"
+    'Output exactly: {"yes": true} or {"yes": false}.\n\n'
+    "---\n{{ chapter_text }}\n---"
+)
+
 
 class _CachedResolution(BaseModel):
     qid: str | None
@@ -198,19 +211,31 @@ def _count_word_boundary_occurrences(text: str, surface_form: str) -> int:
 
 
 async def _judge_one(
-    client: LLMClient, prompt_template: str, candidate_name: str, chapter_text: str
+    client: LLMClient,
+    candidate_name: str,
+    entity_type_name: str,
+    chapter_text: str,
 ) -> bool:
-    user_prompt = Template(prompt_template).render(
+    user_prompt = Template(_JUDGE_YES_NO_TEMPLATE).render(
         candidate_name=candidate_name,
+        entity_type=entity_type_name,
         chapter_text=chapter_text,
     )
-    resp, _ = await client.complete_structured(
-        system=_JUDGE_SYSTEM,
-        user=user_prompt,
-        schema=_JudgeYesNo,
-        prompt_version="judge-v1",
-    )
-    return resp.yes
+    try:
+        resp, _ = await client.complete_structured(
+            system=_JUDGE_SYSTEM,
+            user=user_prompt,
+            schema=_JudgeYesNo,
+            prompt_version="judge-yesno-v1",
+        )
+        return resp.yes
+    except Exception as e:
+        # A single malformed judge response should not poison the whole tier;
+        # treat as a "no" vote and let consensus handle it.
+        logger.warning(
+            f"judge call for {candidate_name!r} failed: {e!r}; counting as 'no'"
+        )
+        return False
 
 
 async def _judge_consensus(
@@ -223,9 +248,7 @@ async def _judge_consensus(
     """Return the number of 'yes' votes across n_calls judge calls."""
     results = await asyncio.gather(
         *[
-            _judge_one(
-                client, entity_type.judge_prompt_template, candidate_name, chapter_text
-            )
+            _judge_one(client, candidate_name, entity_type.name, chapter_text)
             for _ in range(n_calls)
         ]
     )

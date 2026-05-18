@@ -8,11 +8,17 @@ Tier 2 (entity.wikidata_qid is None):
   - LLM-summarize from concatenated context_windows of source_candidates
   - summary_source = "llm_in_book"
   - primary_image = None, wikipedia_url = None
+
+Image fallback (applied after Tier 1/2):
+  - If primary_image is None AND PUGMARK_AI_IMAGES=1, synthesize an image via
+    Azure gpt-image-1.5 (image_gen.generate_image). The result is cached on
+    disk and embedded as a file:// ImageRef tagged source="ai_generated".
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +27,8 @@ from jinja2 import Template
 from pydantic import BaseModel
 
 from pugmark.cache import Cache
+from pugmark.image_gen import build_prompt as build_image_prompt
+from pugmark.image_gen import generate_image
 from pugmark.llm import LLMClient, LLMConfig
 from pugmark.schemas import (
     Chapter,
@@ -187,6 +195,40 @@ async def _enrich_without_qid(
     )
 
 
+def _ai_images_enabled() -> bool:
+    return os.environ.get("PUGMARK_AI_IMAGES", "0") in ("1", "true", "yes", "on")
+
+
+async def _maybe_synthesize_image(
+    entity: ConfirmedEntity, sem: asyncio.Semaphore
+) -> ImageRef | None:
+    """Generate an AI image for `entity` and return it as an ImageRef, or None.
+
+    Bounded by the same semaphore as Wikipedia/Commons calls so we don't blow
+    past Azure deployment limits.
+    """
+    if not _ai_images_enabled():
+        return None
+    context = ""
+    if entity.source_candidates:
+        context = entity.source_candidates[0].context_sentence or ""
+    prompt = build_image_prompt(
+        canonical_name=entity.canonical_name or entity.vernacular,
+        entity_type=entity.entity_type,
+        context_sentence=context,
+    )
+    async with sem:
+        path = await generate_image(prompt)
+    if path is None:
+        return None
+    return ImageRef(
+        url=f"file://{Path(path).absolute()}",
+        license="AI-generated (Azure gpt-image-1.5)",
+        attribution="Synthesized by Pugmark — not a photograph",
+        source="ai_generated",
+    )
+
+
 async def _enrich_one(
     entity: ConfirmedEntity,
     chapter: Chapter,
@@ -194,10 +236,12 @@ async def _enrich_one(
     sem: asyncio.Semaphore,
     llm_config: LLMConfig | None,
 ) -> EntityCard | None:
+    # Cache key includes AI-images-on/off so toggling re-runs the image step.
     cache_key = Cache.compute_hash(
         entity.wikidata_qid or f"in-book:{entity.canonical_name.lower()}",
         ENRICH_VERSION,
         entity.entity_type,
+        "ai" if _ai_images_enabled() else "noai",
     )
     hit = cache.get("enrich", cache_key, EntityCard)
     if hit is not None:
@@ -207,6 +251,11 @@ async def _enrich_one(
         card = await _enrich_with_qid(entity, sem)
     else:
         card = await _enrich_without_qid(entity, sem, llm_config)
+
+    if card is not None and card.primary_image is None:
+        ai_image = await _maybe_synthesize_image(entity, sem)
+        if ai_image is not None:
+            card = card.model_copy(update={"primary_image": ai_image})
 
     if card is not None:
         cache.set("enrich", cache_key, card)

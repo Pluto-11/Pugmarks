@@ -24,6 +24,7 @@ from pugmark.cache import Cache
 from pugmark.ingest import list_chapters
 from pugmark.llm import LLMConfig
 from pugmark.observability import init_observability
+from pugmark.pdf_export import render_pdf
 from pugmark.prompts_cli import prompts as prompts_group
 from pugmark.render import render_html
 
@@ -103,6 +104,60 @@ def analyze(pdf: Path) -> None:
 def extract(pdf: Path, chapter: int, out: Path) -> None:
     """Run the full pipeline and write an HTML gallery."""
     asyncio.run(_run_pipeline(pdf, chapter, out))
+
+
+@cli.command("export-pdf")
+@click.argument("pdf", type=click.Path(exists=True, path_type=Path))
+@click.option("--chapter", type=int, required=True, help="Chapter number from `pugmark chapters`")
+@click.option("--out", type=click.Path(path_type=Path), required=True, help="Output .pdf path")
+@click.option(
+    "--ai-images/--no-ai-images",
+    default=True,
+    show_default=True,
+    help="Generate AI illustrations for entities without Commons photos "
+    "(needs AZURE_IMAGE_API_KEY/_ENDPOINT/_API_VERSION in .env).",
+)
+def export_pdf(pdf: Path, chapter: int, out: Path, ai_images: bool) -> None:
+    """Run the full pipeline and write a print-ready PDF (cover + cards + AI images)."""
+    import os as _os
+    if ai_images:
+        _os.environ["PUGMARK_AI_IMAGES"] = "1"
+    else:
+        _os.environ["PUGMARK_AI_IMAGES"] = "0"
+    asyncio.run(_run_pdf_pipeline(pdf, chapter, out))
+
+
+async def _run_pdf_pipeline(pdf: Path, chapter_num: int, out: Path) -> None:
+    cache = Cache.from_env()
+    llm_config = LLMConfig.from_env()
+    click.echo(
+        f"[pdf] PDF={pdf.name} chapter={chapter_num} "
+        f"primary={llm_config.providers[0]}"
+    )
+    click.echo(
+        "[pdf] Analyze → realize → per-type extract/validate/enrich "
+        "(with AI-image fallback)..."
+    )
+    gallery = await extract_gallery(pdf, chapter_num, cache=cache, llm_config=llm_config)
+    real_sources = ("wikimedia", "wikipedia", "inaturalist")
+    for type_name, cards in gallery.cards_by_type.items():
+        n_real = sum(
+            1 for c in cards
+            if c.primary_image and c.primary_image.source in real_sources
+        )
+        n_ai = sum(
+            1 for c in cards
+            if c.primary_image and c.primary_image.source == "ai_generated"
+        )
+        n_none = sum(1 for c in cards if c.primary_image is None)
+        click.echo(
+            f"  {type_name}: {len(cards)} cards ({n_real} real photo · "
+            f"{n_ai} AI-illustrated · {n_none} no image)"
+        )
+    click.echo(f"  unresolved: {len(gallery.unresolved)}")
+    click.echo(f"[pdf] Rendering to {out}...")
+    render_pdf(gallery, out)
+    click.echo(f"✓ Done. Open {out}.")
 
 
 async def _run_pipeline(pdf: Path, chapter_num: int, out: Path) -> None:

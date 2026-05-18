@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class Chapter(BaseModel):
@@ -129,9 +129,14 @@ class ConfirmedEntity(BaseModel):
 
 
 class ImageRef(BaseModel):
-    """A licensed image reference. License + attribution are required."""
+    """A licensed image reference. License + attribution are required.
 
-    url: HttpUrl
+    `url` accepts both http(s) (Wikimedia / iNaturalist) and file:// scheme
+    (locally generated images cached on disk). The renderer / PDF exporter
+    handle both.
+    """
+
+    url: AnyUrl
     license: str
     attribution: str
     source: Literal["wikimedia", "inaturalist", "wikipedia", "ai_generated"]
