@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import BaseModel
 
+from pugmark.entity_type import EntityTypeSpec
 from pugmark.extract import EXTRACT_VERSION, extract_candidates
 from pugmark.llm import LLMConfig
 from pugmark.schemas import Chapter
@@ -29,6 +30,16 @@ def chapter() -> Chapter:
         normalized_text=text,
         page_offsets=[0],
         ingest_version="v1",
+    )
+
+
+def _taxa_spec() -> EntityTypeSpec:
+    return EntityTypeSpec(
+        name="taxa",
+        description="taxa",
+        wikidata_qclass="Q16521",
+        extraction_prompt_template="Extract from {{ chapter_text }}",
+        judge_prompt_template="x",
     )
 
 
@@ -72,12 +83,12 @@ async def test_extract_returns_candidates(
     cache = Cache(root=tmp_path / "cache")
 
     candidates = await extract_candidates(
-        chapter, llm_config=LLMConfig(), prompt_dir=Path("prompts"), cache=cache
+        chapter, entity_type=_taxa_spec(), llm_config=LLMConfig(), cache=cache
     )
     assert len(candidates) == 2
     assert candidates[0].surface_form == "tiger"
     assert candidates[0].extractor_version == EXTRACT_VERSION
-    assert candidates[1].kingdom_hint == "plantae"
+    assert candidates[1].entity_type == "taxa"
 
 
 @pytest.mark.asyncio
@@ -106,9 +117,58 @@ async def test_extract_uses_cache_on_second_call(
 
     cache = Cache(root=tmp_path / "cache")
     await extract_candidates(
-        chapter, llm_config=LLMConfig(), prompt_dir=Path("prompts"), cache=cache
+        chapter, entity_type=_taxa_spec(), llm_config=LLMConfig(), cache=cache
     )
     await extract_candidates(
-        chapter, llm_config=LLMConfig(), prompt_dir=Path("prompts"), cache=cache
+        chapter, entity_type=_taxa_spec(), llm_config=LLMConfig(), cache=cache
     )
     assert mock.await_count == 1, "second call should hit cache"
+
+
+@pytest.mark.asyncio
+async def test_extract_uses_entity_type_specific_prompt(
+    chapter: Chapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The extraction prompt comes from EntityTypeSpec, not a hardcoded file."""
+    fake_payload = {
+        "candidates": [
+            {
+                "surface_form": "Sherlock",
+                "proposed_name": "Sherlock Holmes",
+                "entity_type": "people",
+                "context_sentence": "Sherlock entered.",
+                "char_offset": 0,
+                "llm_confidence": 0.95,
+            }
+        ]
+    }
+
+    class _Resp(BaseModel):
+        candidates: list[dict]
+
+    async def fake_call(*args, **kwargs):
+        return _Resp(**fake_payload), "gemini/gemini-2.0-flash"
+
+    from pugmark import extract as extract_mod
+
+    monkeypatch.setattr(
+        extract_mod.LLMClient,
+        "complete_structured",
+        AsyncMock(side_effect=fake_call),
+    )
+    from pugmark.cache import Cache
+    cache = Cache(root=tmp_path / "cache")
+
+    people_spec = EntityTypeSpec(
+        name="people",
+        description="people",
+        wikidata_qclass="Q5",
+        extraction_prompt_template="Find people in: {{ chapter_text }}",
+        judge_prompt_template="x",
+    )
+    candidates = await extract_candidates(
+        chapter, entity_type=people_spec, llm_config=LLMConfig(), cache=cache
+    )
+    assert len(candidates) == 1
+    assert candidates[0].entity_type == "people"
+    assert candidates[0].proposed_name == "Sherlock Holmes"
