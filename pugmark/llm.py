@@ -36,9 +36,11 @@ class LLMConfig:
             "groq": "groq/llama-3.3-70b-versatile",
             "ollama": "ollama/qwen2.5:7b",
         }
-        ordered = [primary] + [
-            provider_to_model[p] for p in provider_csv if provider_to_model.get(p) != primary
-        ]
+        ordered = [primary]
+        for p in provider_csv:
+            model = provider_to_model.get(p.strip())
+            if model and model != primary:
+                ordered.append(model)
         return cls(providers=ordered)
 
 

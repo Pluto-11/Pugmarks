@@ -34,6 +34,11 @@ async def test_first_provider_succeeds(config: LLMConfig) -> None:
     assert out == DummyOut(items=["a", "b"])
     assert used == "gemini/gemini-2.0-flash"
     assert m.await_count == 1
+    call_kwargs = m.call_args.kwargs
+    assert call_kwargs["metadata"] == {
+        "prompt_version": "v1",
+        "pugmark_provider": "gemini/gemini-2.0-flash",
+    }
 
 
 @pytest.mark.asyncio
@@ -61,3 +66,33 @@ async def test_raises_when_all_providers_fail(config: LLMConfig) -> None:
         await client.complete_structured(
             system="sys", user="usr", schema=DummyOut, prompt_version="v1"
         )
+
+
+def test_from_env_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PUGMARK_PRIMARY_MODEL", raising=False)
+    monkeypatch.delenv("PUGMARK_PROVIDERS", raising=False)
+    cfg = LLMConfig.from_env()
+    assert cfg.providers == [
+        "gemini/gemini-2.0-flash",
+        "groq/llama-3.3-70b-versatile",
+    ]
+
+
+def test_from_env_primary_swap_puts_groq_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PUGMARK_PRIMARY_MODEL", "groq/llama-3.3-70b-versatile")
+    monkeypatch.setenv("PUGMARK_PROVIDERS", "gemini,groq")
+    cfg = LLMConfig.from_env()
+    assert cfg.providers == [
+        "groq/llama-3.3-70b-versatile",
+        "gemini/gemini-2.0-flash",
+    ]
+
+
+def test_from_env_ignores_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PUGMARK_PRIMARY_MODEL", "gemini/gemini-2.0-flash")
+    monkeypatch.setenv("PUGMARK_PROVIDERS", "gemini,grok,ollama")
+    cfg = LLMConfig.from_env()
+    assert cfg.providers == [
+        "gemini/gemini-2.0-flash",
+        "ollama/qwen2.5:7b",
+    ]
