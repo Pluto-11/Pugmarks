@@ -37,8 +37,36 @@ def test_chapter_dehyphenates_line_wraps(tmp_path: Path) -> None:
     assert "panther" in chapter.normalized_text
 
 
-def test_offset_to_page_resolves_correctly() -> None:
+def test_offset_to_page_maps_page_boundaries() -> None:
     chapter = load_chapter(FIXTURE, chapter_number=1)
     assert chapter.offset_to_page(0) == 1
-    last_offset = len(chapter.normalized_text) - 1
-    assert chapter.offset_to_page(last_offset) >= 1
+    # Last char of page 1 should still map to page 1
+    boundary = chapter.page_offsets[1]
+    assert chapter.offset_to_page(boundary - 1) == 1
+    # First char of page 2 should map to page 2
+    assert chapter.offset_to_page(boundary) == 2
+
+
+def test_list_chapters_ignores_subsection_toc_entries(tmp_path: Path) -> None:
+    import fitz
+
+    p = tmp_path / "multi_level.pdf"
+    doc = fitz.open()
+    for _ in range(4):
+        page = doc.new_page()
+        page.insert_text((72, 72), "x", fontsize=11)
+    doc.set_toc(
+        [
+            [1, "Chapter One", 1],
+            [2, "Section 1.1", 2],
+            [1, "Chapter Two", 3],
+            [2, "Section 2.1", 4],
+        ]
+    )
+    doc.save(p)
+    chapters = list_chapters(p)
+    assert [c["title"] for c in chapters] == ["Chapter One", "Chapter Two"]
+    assert chapters[0]["page_start"] == 1
+    assert chapters[0]["page_end"] == 2  # one before next level-1 entry
+    assert chapters[1]["page_start"] == 3
+    assert chapters[1]["page_end"] == 4  # page_count

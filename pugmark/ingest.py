@@ -46,39 +46,39 @@ def _normalize(text: str) -> str:
 
 
 def list_chapters(pdf_path: Path) -> list[ChapterInfo]:
-    """Detect chapters via PDF outline (TOC bookmarks)."""
+    """Detect chapters via PDF outline (TOC bookmarks).
+
+    Only level-1 TOC entries are treated as chapters; subsection bookmarks
+    (level >= 2) are ignored so they don't get enumerated as separate chapters.
+    """
     doc = fitz.open(pdf_path)
     try:
         toc = doc.get_toc()
+        page_count = doc.page_count
     finally:
         doc.close()
 
     if not toc:
         return []
 
+    chapter_entries = [(i, e) for i, e in enumerate(toc) if e[0] == 1]
+
     out: list[ChapterInfo] = []
-    for i, entry in enumerate(toc):
+    for nth, (_toc_idx, entry) in enumerate(chapter_entries):
         _level, title, page_start = entry
-        if i + 1 < len(toc):
-            page_end = toc[i + 1][2] - 1
+        if nth + 1 < len(chapter_entries):
+            next_toc_idx = chapter_entries[nth + 1][0]
+            page_end = toc[next_toc_idx][2] - 1
         else:
-            try:
-                page_end = doc.page_count
-            except (ValueError, AttributeError):
-                page_end = page_start
-        # We need page_end for the last chapter; reopen briefly to avoid using closed doc
+            page_end = page_count
         out.append(
             ChapterInfo(
-                number=i + 1, title=title, page_start=page_start, page_end=page_end
+                number=nth + 1,
+                title=title,
+                page_start=page_start,
+                page_end=page_end,
             )
         )
-    # Fix last chapter's page_end since we closed the doc above
-    doc2 = fitz.open(pdf_path)
-    try:
-        if out:
-            out[-1]["page_end"] = doc2.page_count
-    finally:
-        doc2.close()
     return out
 
 
