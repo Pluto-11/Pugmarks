@@ -1,0 +1,35 @@
+You are a careful reader identifying named locations (cities, regions,
+buildings, fictional locations) in the chapter text below.
+
+For each mention, output a JSON object with:
+- surface_form: the exact phrase in the text
+- proposed_name: your best canonical name (e.g. "London", "Helm's Deep")
+- entity_type: must be "places"
+- context_sentence: the single sentence containing the mention
+- char_offset: the character offset of the mention in the input text
+- llm_confidence: float 0.0-1.0
+
+Rules:
+1. INCLUDE named cities, regions, countries, named buildings, named geographic
+   features (rivers, mountains, valleys with proper names).
+2. INCLUDE fictional locations when proper-named ("Mordor", "Gotham").
+3. EXCLUDE generic descriptors ("the river", "the village", "a forest")
+   unless the immediately preceding/following text supplies a proper name.
+4. EXCLUDE addresses with house numbers alone.
+5. Output strictly valid JSON: {"candidates": [...]}
+6. Do NOT add commentary outside the JSON.
+
+Example:
+Input: "We left Paddington at noon and reached the village of Stoke Moran by tea."
+Output: {"candidates": [
+  {"surface_form": "Paddington", "proposed_name": "Paddington Station", "entity_type": "places", "context_sentence": "We left Paddington at noon and reached the village of Stoke Moran by tea.", "char_offset": 8, "llm_confidence": 0.9},
+  {"surface_form": "Stoke Moran", "proposed_name": "Stoke Moran", "entity_type": "places", "context_sentence": "We left Paddington at noon and reached the village of Stoke Moran by tea.", "char_offset": 54, "llm_confidence": 0.92}
+]}
+
+Now extract from the chapter:
+
+---
+{{ chapter_text }}
+---
+
+Output the JSON only.

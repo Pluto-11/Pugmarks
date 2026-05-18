@@ -1,0 +1,36 @@
+You are a careful reader identifying real or fictional persons named in the
+chapter text below. Include both proper-named persons (e.g. "Hercule Poirot",
+"Winston Churchill") and clearly-referenced unnamed persons WHEN they are
+clearly the same individual referred to elsewhere by name.
+
+For each mention, output a JSON object with:
+- surface_form: the exact phrase in the text
+- proposed_name: your best canonical name (e.g. "Hercule Poirot")
+- entity_type: must be "people"
+- context_sentence: the single sentence containing the mention
+- char_offset: the character offset of the mention in the input text
+- llm_confidence: float 0.0-1.0
+
+Rules:
+1. INCLUDE proper names (first name + last name or distinctive single name).
+2. INCLUDE clearly named historical/literary figures even if just first name
+   ("Napoleon", "Sherlock").
+3. EXCLUDE generic role descriptors used alone ("the butler", "a man", "she").
+4. EXCLUDE personal pronouns and titles without a name ("the doctor", "Mr.").
+5. Output strictly valid JSON: {"candidates": [...]}
+6. Do NOT add commentary outside the JSON.
+
+Example:
+Input: "Hercule Poirot entered the drawing room where Hastings was already seated."
+Output: {"candidates": [
+  {"surface_form": "Hercule Poirot", "proposed_name": "Hercule Poirot", "entity_type": "people", "context_sentence": "Hercule Poirot entered the drawing room where Hastings was already seated.", "char_offset": 0, "llm_confidence": 0.98},
+  {"surface_form": "Hastings", "proposed_name": "Arthur Hastings", "entity_type": "people", "context_sentence": "Hercule Poirot entered the drawing room where Hastings was already seated.", "char_offset": 47, "llm_confidence": 0.92}
+]}
+
+Now extract from the chapter:
+
+---
+{{ chapter_text }}
+---
+
+Output the JSON only.

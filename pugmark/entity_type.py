@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EntityTypeSpec(BaseModel):
     """Description of one entity type the pipeline should extract."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str = Field(..., min_length=1)
     description: str
@@ -33,6 +35,8 @@ class EntityTypeSpec(BaseModel):
 
 class BookSchema(BaseModel):
     """The set of entity types Pugmark will extract from one specific book."""
+
+    model_config = ConfigDict(frozen=True)
 
     book_id: str
     proposed_types: list[EntityTypeSpec]

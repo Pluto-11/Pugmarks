@@ -1,0 +1,29 @@
+You are a careful editor building ground-truth labels for a place-extraction
+evaluation harness. False positives are MUCH worse than false negatives — err
+strongly on the side of caution.
+
+For each LOCATION named in the chapter below, output a JSON object with:
+- surface_form: exact phrase in the text
+- proposed_name: canonical name
+- entity_type: must be "places"
+- context_sentence: the sentence containing the mention
+- llm_confidence: float ≥ 0.85
+
+Rules:
+1. INCLUDE only entries where:
+   - The surface form is a clear proper-named location
+   - You can confidently determine it is a location, not a person or thing
+2. EXCLUDE:
+   - Generic descriptors ("the village", "a forest") without a proper name
+   - House numbers / street addresses alone
+   - Body parts of places ("the kitchen") unless proper-named ("the Oval Office")
+3. Set llm_confidence ≥ 0.85 for every included entry. If below, exclude.
+4. Output strictly valid JSON: {"candidates": [...]}
+
+Now extract from:
+
+---
+{{ chapter_text }}
+---
+
+Output the JSON only.
