@@ -26,6 +26,8 @@ class Cache:
 
     @classmethod
     def from_env(cls) -> Cache:
+        if os.environ.get("SPACE_ID"):
+            return cls(root=Path("/data/.cache/pugmark"))
         hf_home = os.environ.get("HF_HOME")
         if hf_home:
             return cls(root=Path(hf_home) / ".cache" / "pugmark")
@@ -46,12 +48,18 @@ class Cache:
         path = self._path(stage, key)
         if not path.exists():
             return None
-        return model_cls.model_validate_json(path.read_text())
+        try:
+            return model_cls.model_validate_json(path.read_text())
+        except Exception:
+            path.unlink(missing_ok=True)
+            return None
 
     def set(self, stage: str, key: str, value: BaseModel) -> None:
         path = self._path(stage, key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(value.model_dump_json(indent=2))
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(value.model_dump_json(indent=2))
+        tmp.replace(path)
 
     def clear(self, stage: str | None = None) -> None:
         """Remove cached entries. If stage is given, only that stage; else all."""
