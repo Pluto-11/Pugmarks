@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import click
 from dotenv import load_dotenv
 
 from eval.auto_label import auto_label_chapter
+from eval.runner import run_eval
 from pugmark.cache import Cache
 from pugmark.enrich import enrich_taxa
 from pugmark.extract import extract_candidates
@@ -145,6 +147,67 @@ async def _run_autolabel(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(truth, indent=2))
     click.echo(f"✓ Wrote {len(truth)} ground-truth entries to {out}")
+
+
+@cli.command()
+@click.argument("pdf", type=click.Path(exists=True, path_type=Path))
+@click.option("--chapter", type=int, required=True)
+@click.option(
+    "--ground-truth",
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help="Path to ground-truth JSON (e.g., eval/ground_truth/sivanipalli.json)",
+)
+@click.option("--runs-dir", type=click.Path(path_type=Path), default=Path("eval/runs"))
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="Exit non-zero if F1 dropped >5% vs latest prior run.",
+)
+def eval_cmd(
+    pdf: Path, chapter: int, ground_truth: Path, runs_dir: Path, strict: bool
+) -> None:
+    """Run eval against ground truth."""
+    run = asyncio.run(
+        run_eval(
+            pdf=pdf,
+            chapter_number=chapter,
+            ground_truth_path=ground_truth,
+            runs_dir=runs_dir,
+        )
+    )
+
+    click.echo(
+        f"Extraction: P={run.extraction.precision:.3f} "
+        f"R={run.extraction.recall:.3f} F1={run.extraction.f1:.3f}"
+    )
+    click.echo(f"Hallucination: {run.extraction.hallucination_rate:.3f}")
+    click.echo(
+        f"Validation:  QID-acc={run.validation.qid_accuracy:.3f} "
+        f"unresolved-rate={run.validation.unresolved_rate:.3f}"
+    )
+    click.echo(f"Latency:     {run.latency_ms} ms")
+
+    if strict:
+        this_run_stem = run.timestamp.strftime("%Y%m%dT%H%M%S")
+        prior = sorted(
+            p for p in runs_dir.glob("*.json") if p.stem != this_run_stem
+        )
+        if prior:
+            prev = json.loads(prior[-1].read_text())
+            prev_f1 = prev["extraction"]["f1"]
+            if run.extraction.f1 < prev_f1 - 0.05:
+                click.echo(
+                    f"❌ REGRESSION: F1 dropped from {prev_f1:.3f} → {run.extraction.f1:.3f}",
+                    err=True,
+                )
+                sys.exit(1)
+            click.echo(f"✓ No regression (prev F1: {prev_f1:.3f})")
+
+
+# Click does not allow a subcommand named "eval" because of Python's builtin.
+# Register under the name "eval":
+cli.add_command(eval_cmd, name="eval")
 
 
 if __name__ == "__main__":
