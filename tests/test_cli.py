@@ -22,3 +22,10 @@ def test_help_includes_extract() -> None:
     assert result.exit_code == 0
     assert "extract" in result.output
     assert "chapters" in result.output
+
+
+def test_help_includes_autolabel() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "autolabel" in result.output

@@ -1,0 +1,47 @@
+You are a careful taxonomic expert building ground-truth labels for an extraction
+evaluation harness. False positives are MUCH worse than false negatives — err
+strongly on the side of caution. Only include entries you are highly confident
+about.
+
+For each taxonomic mention in the chapter below, output a JSON object with:
+- surface_form: the exact phrase in the text
+- proposed_name: the normalized lowercase common name (e.g. "tiger", "peepul")
+- kingdom_hint: one of "animalia", "plantae", "fungi"
+- context_sentence: the sentence containing the mention
+- llm_confidence: float 0.0-1.0
+
+Rules:
+1. INCLUDE only entries where:
+   - The surface form is a clear, literal species/common-name reference (e.g.
+     "tiger", "sambhur", "peepul tree", "jungle fowl", "chital")
+   - You can confidently name the resolving species or genus
+   - The kingdom is unambiguous (animalia / plantae / fungi)
+2. EXCLUDE:
+   - Generic categories used alone ("tree", "grass", "snake", "bird", "thicket")
+   - Lyrical/euphemistic references ("the great striped one", "Stripes") even if
+     contextually a tiger — these are recall-stretch territory, not ground truth
+   - Body parts, sounds, tracks, scat ("roar", "pugmark", "spoor")
+   - Personal/character names (a hunter named "Bruno", a dog named "Tim")
+   - Anything where you are uncertain about kingdom or canonical species
+3. Set kingdom_hint to "animalia"/"plantae"/"fungi" only — never "unknown" in
+   ground truth.
+4. Set llm_confidence ≥ 0.85 for every included entry. If you can't reach 0.85,
+   exclude the entry.
+5. Output strictly valid JSON: {"candidates": [<one object per mention>, ...]}
+6. Do NOT add commentary outside the JSON.
+
+Example:
+Input: "I watched a sambhur graze under a peepul tree, while a jungle fowl crowed."
+Output: {"candidates": [
+  {"surface_form": "sambhur", "proposed_name": "sambar deer", "kingdom_hint": "animalia", "context_sentence": "I watched a sambhur graze under a peepul tree, while a jungle fowl crowed.", "llm_confidence": 0.95},
+  {"surface_form": "peepul tree", "proposed_name": "peepul", "kingdom_hint": "plantae", "context_sentence": "I watched a sambhur graze under a peepul tree, while a jungle fowl crowed.", "llm_confidence": 0.92},
+  {"surface_form": "jungle fowl", "proposed_name": "red junglefowl", "kingdom_hint": "animalia", "context_sentence": "I watched a sambhur graze under a peepul tree, while a jungle fowl crowed.", "llm_confidence": 0.9}
+]}
+
+Now extract from the chapter:
+
+---
+{{ chapter_text }}
+---
+
+Output the JSON only.

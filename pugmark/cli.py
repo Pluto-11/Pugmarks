@@ -8,6 +8,7 @@ Subcommands:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
+from eval.auto_label import auto_label_chapter
 from pugmark.cache import Cache
 from pugmark.enrich import enrich_taxa
 from pugmark.extract import extract_candidates
@@ -96,6 +98,53 @@ async def _run_pipeline(pdf: Path, chapter_num: int, out: Path) -> None:
     click.echo(f"[5/5] Rendering to {out}...")
     out.write_text(render_html(gallery))
     click.echo(f"✓ Done. Open {out} in a browser.")
+
+
+@cli.command()
+@click.argument("pdf", type=click.Path(exists=True, path_type=Path))
+@click.option("--chapter", type=int, required=True, help="Chapter number")
+@click.option("--out", type=click.Path(path_type=Path), required=True, help="Output JSON path")
+@click.option(
+    "--judge-model",
+    default="gemini/gemini-2.5-pro",
+    show_default=True,
+    help="LiteLLM model identifier for the judge (must differ from production model)",
+)
+@click.option("--n-calls", default=3, show_default=True, help="Judge call count")
+@click.option("--min-votes", default=2, show_default=True, help="Min votes to survive")
+def autolabel(
+    pdf: Path,
+    chapter: int,
+    out: Path,
+    judge_model: str,
+    n_calls: int,
+    min_votes: int,
+) -> None:
+    """Auto-generate ground truth labels via LLM-as-judge + Wikidata roundtrip."""
+    asyncio.run(_run_autolabel(pdf, chapter, out, judge_model, n_calls, min_votes))
+
+
+async def _run_autolabel(
+    pdf: Path,
+    chapter_num: int,
+    out: Path,
+    judge_model: str,
+    n_calls: int,
+    min_votes: int,
+) -> None:
+    cache = Cache.from_env()
+    click.echo(f"[autolabel] judge={judge_model} n_calls={n_calls} min_votes={min_votes}")
+    truth = await auto_label_chapter(
+        pdf,
+        chapter_num,
+        cache=cache,
+        judge_model=judge_model,
+        n_calls=n_calls,
+        min_votes=min_votes,
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(truth, indent=2))
+    click.echo(f"✓ Wrote {len(truth)} ground-truth entries to {out}")
 
 
 if __name__ == "__main__":
