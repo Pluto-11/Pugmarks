@@ -149,7 +149,7 @@ Everything below is **codeless** — code is done. These are operations against 
 | T17 | `42facad` | per-type ExtractionMetrics.by_type |
 | T18 | `ec696d7` | eval runner per-type + multi-file ground truth |
 | T19 | `67ec891` | per-type autolabel + auto_label_book + --all-types CLI |
-| T20 | `<sha>`   | end-to-end integration test + this STATUS update |
+| T20 | `56b907b` | end-to-end integration test + this STATUS update |
 
 ### Test count
 - v1 baseline: 72 tests
