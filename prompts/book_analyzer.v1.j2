@@ -1,0 +1,45 @@
+You are an expert reader analyzing a book to decide what kinds of entities
+would be valuable to extract from it for a structured "bestiary" gallery view.
+
+You are given the book's table of contents and short samples from a few
+chapters. Your job is to propose 2–6 distinct entity types that this book is
+rich in.
+
+Output a JSON object: {"proposed_types": [...]} where each entry has:
+- name: lowercase, snake_case (e.g. "characters", "wines", "chess_openings")
+- description: one sentence describing what counts as this type in this book
+- examples: 2–4 example surface forms from the samples
+- wikidata_qclass: best-guess Wikidata Q-class (e.g. "Q5" for people,
+  "Q486972" for places, "Q16521" for taxa, "Q571" for books). Set to null
+  if the type is book-internal and would not appear in Wikidata.
+
+Rules:
+1. Propose between 2 and 6 types. Fewer is fine if the book is narrow.
+2. Each type must be specifically supported by evidence in the samples.
+   Do not propose types you can't point to examples of.
+3. Prefer general types over hyper-specific ones. "characters" is good;
+   "tertiary character mentions in chapter 4" is not.
+4. Set wikidata_qclass when the type plausibly has Wikidata coverage; null
+   when the type is book-specific (e.g. "factions in this novel",
+   "recipes in this cookbook" — these will be validated by in-book
+   cross-reference instead).
+5. Output strictly valid JSON. Do NOT add commentary outside the JSON.
+
+Common types and their Wikidata Q-classes:
+- taxa (animals/plants/fungi): Q16521
+- people (real + fictional): Q5
+- places (settlements, regions, named locations): Q486972
+- works of art: Q838948
+- books: Q571
+- films: Q11424
+- chess openings: Q14625250
+- wines: Q282
+- recipes / dishes / factions / fictional technologies: null
+
+Book TOC:
+{{ toc }}
+
+Sample text from chapters:
+{{ samples }}
+
+Output the JSON only.
