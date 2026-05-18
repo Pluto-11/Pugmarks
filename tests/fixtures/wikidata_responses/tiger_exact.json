@@ -1,0 +1,12 @@
+{
+  "results": {
+    "bindings": [
+      {
+        "item": {"value": "http://www.wikidata.org/entity/Q15324"},
+        "itemLabel": {"value": "tiger"},
+        "canonical": {"value": "Panthera tigris"},
+        "rank": {"value": "species"}
+      }
+    ]
+  }
+}

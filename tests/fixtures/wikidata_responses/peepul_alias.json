@@ -1,0 +1,13 @@
+{
+  "results": {
+    "bindings": [
+      {
+        "item": {"value": "http://www.wikidata.org/entity/Q193404"},
+        "itemLabel": {"value": "sacred fig"},
+        "canonical": {"value": "Ficus religiosa"},
+        "rank": {"value": "species"},
+        "alias": {"value": "peepul"}
+      }
+    ]
+  }
+}
