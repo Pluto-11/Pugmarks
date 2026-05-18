@@ -68,7 +68,7 @@ def gallery() -> Gallery:
     )
     return Gallery(
         chapter=chapter,
-        cards=[card],
+        cards_by_type={"taxa": [card]},
         unresolved=[],
         generated_at=datetime.now(),
         pugmark_version="0.1.0",
@@ -98,3 +98,77 @@ def test_render_html_shows_unresolved_count(gallery: Gallery) -> None:
     g = gallery.model_copy(update={"unresolved": [cand]})
     html = render_html(g)
     assert "1 unresolved" in html or "Unresolved (1)" in html
+
+
+def test_render_sections_per_type(gallery: Gallery) -> None:
+    """Multiple type sections render with type headers."""
+    from pugmark.schemas import ConfirmedEntity, EntityCard
+
+    # Add a people card under a different section
+    entity = ConfirmedEntity(
+        canonical_name="Sherlock",
+        vernacular="Sherlock",
+        entity_type="people",
+        wikidata_qid=None,
+        rank="character",
+        attributes={},
+        validation_method="judge_consensus",
+        judge_votes=3,
+        crossref_count=4,
+        source_candidates=gallery.cards_by_type["taxa"][0].entity.source_candidates,
+    )
+    people_card = EntityCard(
+        entity=entity,
+        wikipedia_url=None,
+        wikipedia_summary="A detective at Baker Street.",
+        summary_source="llm_in_book",
+        primary_image=None,
+        alt_images=[],
+        sightings=[],
+        enrich_version="v2",
+    )
+    g = gallery.model_copy(
+        update={
+            "cards_by_type": {
+                **gallery.cards_by_type,
+                "people": [people_card],
+            }
+        }
+    )
+    html = render_html(g)
+    assert "taxa" in html.lower()
+    assert "people" in html.lower()
+    assert "AI-summarized" in html or "ai-summarized" in html.lower()
+
+
+def test_render_placeholder_when_no_image(gallery: Gallery) -> None:
+    """Cards without a primary_image render a typographic placeholder."""
+    from pugmark.schemas import ConfirmedEntity, EntityCard
+
+    entity = ConfirmedEntity(
+        canonical_name="The Cabal",
+        vernacular="The Cabal",
+        entity_type="factions",
+        wikidata_qid=None,
+        rank="faction",
+        attributes={},
+        validation_method="judge_consensus",
+        judge_votes=3,
+        crossref_count=3,
+        source_candidates=gallery.cards_by_type["taxa"][0].entity.source_candidates,
+    )
+    card = EntityCard(
+        entity=entity,
+        wikipedia_url=None,
+        wikipedia_summary="...",
+        summary_source="llm_in_book",
+        primary_image=None,
+        alt_images=[],
+        sightings=[],
+        enrich_version="v2",
+    )
+    g = gallery.model_copy(
+        update={"cards_by_type": {"factions": [card]}}
+    )
+    html = render_html(g)
+    assert "no-image-placeholder" in html
