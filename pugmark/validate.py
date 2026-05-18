@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -94,19 +95,19 @@ async def validate_candidates(
     chapter: Chapter,
     cache: Cache,
 ) -> tuple[list[ConfirmedEntity], list[Candidate]]:
-    """Resolve candidates to ConfirmedEntities; return (confirmed, unresolved).
+    """Resolve candidates; return (confirmed, unresolved).
 
-    For T9 this is the Wikidata-only path. T10/T11 add tiered behavior for
-    entity_type.wikidata_qclass is None.
+    Tier 1 (entity_type.wikidata_qclass is set): SPARQL exact -> alias -> fuzzy.
+    Tier 2 (qclass is None): in-book cross-reference. Counts case-insensitive
+    word-boundary occurrences of each candidate's surface_form in
+    chapter.normalized_text; promotes if count >= min_book_occurrences.
     """
+    if entity_type.wikidata_qclass is None:
+        return _validate_in_book(candidates, entity_type=entity_type, chapter=chapter)
+
+    # === Tier 1: Wikidata path (existing v1+T9 code) ===
     sem = asyncio.Semaphore(CONCURRENCY)
     qclass = entity_type.wikidata_qclass
-    if qclass is None:
-        raise NotImplementedError(
-            f"validate_candidates for {entity_type.name!r} (no Wikidata Q-class) "
-            "requires the tier-2 path which lands in T10. Until then, "
-            "only Wikidata-backed types are supported."
-        )
 
     async def resolve_with_cache(name: str) -> _CachedResolution:
         async with sem:
@@ -174,4 +175,54 @@ async def validate_candidates(
         )
 
     logger.info(f"validate: {len(confirmed)} confirmed, {len(unresolved)} unresolved")
+    return confirmed, unresolved
+
+
+def _count_word_boundary_occurrences(text: str, surface_form: str) -> int:
+    pattern = r"\b" + re.escape(surface_form) + r"\b"
+    return len(re.findall(pattern, text, flags=re.IGNORECASE))
+
+
+def _validate_in_book(
+    candidates: list[Candidate],
+    *,
+    entity_type: EntityTypeSpec,
+    chapter: Chapter,
+) -> tuple[list[ConfirmedEntity], list[Candidate]]:
+    """Tier 2: keep candidates whose surface_form appears >= min_book_occurrences."""
+    text = chapter.normalized_text
+    grouped: dict[str, list[Candidate]] = defaultdict(list)
+    counts: dict[str, int] = {}
+
+    for cand in candidates:
+        key = cand.proposed_name.lower()
+        grouped[key].append(cand)
+        if key not in counts:
+            counts[key] = _count_word_boundary_occurrences(text, cand.surface_form)
+
+    confirmed: list[ConfirmedEntity] = []
+    unresolved: list[Candidate] = []
+
+    for key, cands in grouped.items():
+        count = counts[key]
+        if count >= entity_type.min_book_occurrences:
+            confirmed.append(
+                ConfirmedEntity(
+                    canonical_name=cands[0].proposed_name,
+                    vernacular=cands[0].proposed_name,
+                    entity_type=entity_type.name,
+                    wikidata_qid=None,
+                    rank=entity_type.name.rstrip("s"),
+                    attributes={},
+                    validation_method="in_book_crossref",
+                    crossref_count=count,
+                    source_candidates=cands,
+                )
+            )
+        else:
+            unresolved.extend(cands)
+
+    logger.info(
+        f"validate (in_book): {len(confirmed)} confirmed, {len(unresolved)} unresolved"
+    )
     return confirmed, unresolved
