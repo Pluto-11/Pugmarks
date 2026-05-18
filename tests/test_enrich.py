@@ -5,9 +5,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from pugmark.cache import Cache
-from pugmark.enrich import enrich_taxa
+from pugmark.enrich import enrich_confirmed
 from pugmark.schemas import Candidate, Chapter, ConfirmedTaxon
 
 
@@ -75,7 +76,7 @@ async def test_enrich_produces_taxon_card(
         patch("pugmark.enrich._fetch_wikipedia", new=AsyncMock(side_effect=fake_wp)),
         patch("pugmark.enrich._fetch_commons_image", new=AsyncMock(side_effect=fake_commons)),
     ):
-        cards = await enrich_taxa(confirmed, chapter=chapter, cache=cache)
+        cards = await enrich_confirmed(confirmed, chapter=chapter, cache=cache)
 
     assert len(cards) == 1
     card = cards[0]
@@ -84,3 +85,58 @@ async def test_enrich_produces_taxon_card(
     assert card.primary_image.attribution.startswith("Hollingsworth")
     assert len(card.sightings) == 1
     assert card.sightings[0].page == 1
+
+
+@pytest.mark.asyncio
+async def test_enrich_uses_llm_summary_when_no_qid(
+    chapter: Chapter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Confirmed entities without a Wikidata QID get an LLM-summarized card."""
+    from pugmark.schemas import Candidate, ConfirmedEntity
+
+    cand = Candidate(
+        surface_form="The Cabal",
+        proposed_name="The Cabal",
+        entity_type="factions",
+        context_sentence="The Cabal struck.",
+        context_window="The Cabal struck silently at dawn.",
+        char_offset=0,
+        page=1,
+        llm_confidence=0.9,
+        extractor_version="v2",
+    )
+    entity = ConfirmedEntity(
+        canonical_name="The Cabal",
+        vernacular="The Cabal",
+        entity_type="factions",
+        wikidata_qid=None,
+        rank="faction",
+        attributes={},
+        validation_method="judge_consensus",
+        crossref_count=3,
+        judge_votes=3,
+        source_candidates=[cand],
+    )
+
+    class _Summary(BaseModel):
+        text: str
+
+    async def fake_summary(*args, **kwargs):
+        return _Summary(
+            text="The Cabal is a shadowy organization referenced repeatedly. (faction)"
+        ), "gemini/gemini-2.0-flash"
+
+    monkeypatch.setattr(
+        "pugmark.enrich.LLMClient.complete_structured",
+        AsyncMock(side_effect=fake_summary),
+    )
+
+    cache = Cache(root=tmp_path / "cache")
+    cards = await enrich_confirmed([entity], chapter=chapter, cache=cache)
+
+    assert len(cards) == 1
+    card = cards[0]
+    assert card.primary_image is None
+    assert card.wikipedia_url is None
+    assert card.summary_source == "llm_in_book"
+    assert "shadowy" in card.wikipedia_summary.lower()

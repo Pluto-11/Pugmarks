@@ -1,0 +1,12 @@
+You are summarizing an entity that appears in a book, using only the in-book
+context excerpts provided. Do NOT invent facts not present in the excerpts.
+Keep the summary to 2-3 sentences. End with a brief note in parentheses
+naming the entity_type.
+
+Entity name: {{ entity_name }}
+Entity type: {{ entity_type }}
+
+In-book excerpts (concatenated context windows):
+{{ excerpts }}
+
+Output: the summary text only. No headers, no quotes.
