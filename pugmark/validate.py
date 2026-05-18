@@ -16,11 +16,12 @@ from pydantic import BaseModel
 from rapidfuzz import fuzz
 
 from pugmark.cache import Cache
-from pugmark.schemas import Candidate, ConfirmedTaxon
+from pugmark.entity_type import EntityTypeSpec
+from pugmark.schemas import Candidate, Chapter, ConfirmedEntity
 
 logger = logging.getLogger(__name__)
 
-VALIDATE_VERSION = "v1"
+VALIDATE_VERSION = "v2"
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "Pugmark/0.1 (https://github.com/Ansumanbhujabal/Pugmarks)"
 FUZZY_THRESHOLD = 85  # 0-100 rapidfuzz scale
@@ -36,17 +37,17 @@ class _CachedResolution(BaseModel):
     fuzzy_score: float | None
 
 
-async def _sparql_query(query_name: str) -> dict[str, Any]:
+async def _sparql_query(query_name: str, qclass: str) -> dict[str, Any]:
     """Issue a SPARQL query against Wikidata, return parsed JSON.
 
-    `query_name` is interpolated into a name-search template. This is a thin
-    layer separated from validate_candidates for unit-test mocking.
+    `query_name` is interpolated into a name-search template. `qclass` is the
+    Wikidata Q-identifier for the entity class (Q16521 taxa, Q5 humans, etc.)
     """
     sparql = f"""
     SELECT ?item ?itemLabel ?canonical ?rank ?alias WHERE {{
       VALUES ?searchTerm {{ "{query_name}"@en }}
       ?item rdfs:label ?searchTerm.
-      ?item wdt:P31/wdt:P279* wd:Q16521.
+      ?item wdt:P31/wdt:P279* wd:{qclass}.
       OPTIONAL {{ ?item wdt:P225 ?canonical. }}
       OPTIONAL {{ ?item wdt:P105/rdfs:label ?rank. FILTER(LANG(?rank)="en") }}
       OPTIONAL {{ ?item skos:altLabel ?alias. FILTER(LANG(?alias)="en") }}
@@ -65,8 +66,8 @@ def _qid_from_uri(uri: str) -> str:
     return uri.rsplit("/", 1)[-1]
 
 
-async def _resolve_one(name: str) -> _CachedResolution:
-    data = await _sparql_query(name)
+async def _resolve_one(name: str, qclass: str) -> _CachedResolution:
+    data = await _sparql_query(name, qclass)
     bindings = data.get("results", {}).get("bindings", [])
     if not bindings:
         return _CachedResolution(
@@ -87,21 +88,33 @@ async def _resolve_one(name: str) -> _CachedResolution:
 
 
 async def validate_candidates(
-    candidates: list[Candidate], *, cache: Cache
-) -> tuple[list[ConfirmedTaxon], list[Candidate]]:
-    """Resolve candidates to ConfirmedTaxa; return (confirmed, unresolved).
+    candidates: list[Candidate],
+    *,
+    entity_type: EntityTypeSpec,
+    chapter: Chapter,
+    cache: Cache,
+) -> tuple[list[ConfirmedEntity], list[Candidate]]:
+    """Resolve candidates to ConfirmedEntities; return (confirmed, unresolved).
 
-    Many-to-one: candidates resolving to the same QID merge into one ConfirmedTaxon.
+    For T9 this is the Wikidata-only path. T10/T11 add tiered behavior for
+    entity_type.wikidata_qclass is None.
     """
     sem = asyncio.Semaphore(CONCURRENCY)
+    qclass = entity_type.wikidata_qclass
+    if qclass is None:
+        raise NotImplementedError(
+            f"validate_candidates for {entity_type.name!r} (no Wikidata Q-class) "
+            "requires the tier-2 path which lands in T10. Until then, "
+            "only Wikidata-backed types are supported."
+        )
 
     async def resolve_with_cache(name: str) -> _CachedResolution:
         async with sem:
-            key = Cache.compute_hash(name.lower(), VALIDATE_VERSION)
+            key = Cache.compute_hash(name.lower(), VALIDATE_VERSION, entity_type.name)
             hit = cache.get("validate", key, _CachedResolution)
             if hit is not None:
                 return hit
-            res = await _resolve_one(name)
+            res = await _resolve_one(name, qclass)
             cache.set("validate", key, res)
             return res
 
@@ -143,16 +156,17 @@ async def validate_candidates(
             qid_to_candidates[resolution.qid].append(cand)
             qid_to_resolution[resolution.qid] = resolution
 
-    confirmed: list[ConfirmedTaxon] = []
+    confirmed: list[ConfirmedEntity] = []
     for qid, cands in qid_to_candidates.items():
         res = qid_to_resolution[qid]
         confirmed.append(
-            ConfirmedTaxon(
+            ConfirmedEntity(
                 canonical_name=res.canonical or res.vernacular or "",
                 vernacular=res.vernacular or "",
+                entity_type=entity_type.name,
                 wikidata_qid=qid,
                 rank=res.rank or "species",
-                lineage={},  # filled in enrich; minimal here
+                attributes={},
                 validation_method=res.method or "sparql_exact",  # type: ignore[arg-type]
                 fuzzy_score=res.fuzzy_score,
                 source_candidates=cands,
