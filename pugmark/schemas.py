@@ -4,6 +4,7 @@ v2 generalizes the v1 taxa-specific models. v1 names are preserved as aliases.
 """
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -77,6 +78,11 @@ class Candidate(BaseModel):
     @property
     def kingdom_hint(self) -> str | None:
         """v1 read-side compat: surfaces type_attrs['kingdom_hint'] when present."""
+        warnings.warn(
+            "Candidate.kingdom_hint is deprecated; read type_attrs['kingdom_hint'] directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.type_attrs.get("kingdom_hint")
 
 
@@ -114,6 +120,11 @@ class ConfirmedEntity(BaseModel):
     @property
     def lineage(self) -> dict[str, str]:
         """v1 read-side compat: aliases `attributes`."""
+        warnings.warn(
+            "ConfirmedEntity.lineage is deprecated; read attributes directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.attributes
 
 
@@ -158,6 +169,11 @@ class EntityCard(BaseModel):
     @property
     def taxon(self) -> ConfirmedEntity:
         """v1 read-side compat: aliases `entity`."""
+        warnings.warn(
+            "EntityCard.taxon is deprecated; read entity directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.entity
 
 
@@ -213,6 +229,11 @@ class Gallery(BaseModel):
     @property
     def cards(self) -> list[EntityCard]:
         """v1 read-side compat: flat list across all type buckets."""
+        warnings.warn(
+            "Gallery.cards is deprecated; iterate cards_by_type.items() directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         flat: list[EntityCard] = []
         for bucket in self.cards_by_type.values():
             flat.extend(bucket)
